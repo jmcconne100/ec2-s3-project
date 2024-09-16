@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Template to create S3 bucket with versioning and EC2 instance with IAM role for S3 access
+
+Resources:
+  # S3 Bucket with Versioning
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: s3-ec2-project-bucket
+      VersioningConfiguration:
+        Status: Enabled
+
+  # IAM Role for EC2 with S3 Access
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3Bucket}'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - 'arn:aws:s3:::bash-scripts-for-ec2/*'
+
+  # IAM Instance Profile
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # EC2 Instance
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      SecurityGroups:
+        - default # Use default security group
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: ami-0323c3dd2da7fb37d # Amazon Linux 2 AMI for t2.micro in us-west-2
+      UserData:
+        Fn::Base64: 
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y aws-cli python3-pip
+            pip3 install boto3
+            mkdir -p /home/ec2-user/s3-downloads
+            aws s3 cp s3://bash-scripts-for-ec2/ /home/ec2-user/s3-downloads/ --recursive
+            echo "Downloaded contents of bash-scripts-for-ec2 bucket to /home/ec2-user/s3-downloads"
+
+  # Output the EC2 Instance Public IP and S3 Bucket Name
+Outputs:
+  EC2InstancePublicIP:
+    Description: Public IP address of the EC2 instance
+    Value: !GetAtt EC2Instance.PublicIp
+
+  S3BucketName:
+    Description: The name of the S3 bucket
+    Value: !Ref S3Bucket
